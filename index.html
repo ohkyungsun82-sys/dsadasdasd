@@ -2,11 +2,11 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>2D 마인크래프트 멀티플레이</title>
+    <title>2D Minecraft Multiplayer</title>
     <style>
         body {
             margin: 0;
-            background: #1e1e1e;
+            background: #111;
             color: white;
             font-family: 'Courier New', Courier, monospace;
             display: flex;
@@ -16,28 +16,83 @@
             height: 100vh;
             overflow: hidden;
         }
-        #ui {
-            margin-bottom: 10px;
+        #menuScreen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 30px 50px;
+            border-radius: 12px;
+            border: 3px solid #555;
+            box-shadow: 0 0 30px rgba(0,0,0,0.9);
+        }
+        h1 { color: #55ff55; margin-bottom: 20px; text-shadow: 2px 2px #000; }
+        .menu-btn {
+            background: #444;
+            color: white;
+            border: 2px solid #777;
+            padding: 12px 25px;
+            margin: 10px;
             font-size: 18px;
+            font-family: 'Courier New', Courier, monospace;
+            cursor: pointer;
+            border-radius: 6px;
+            width: 240px;
+            transition: 0.2s;
+        }
+        .menu-btn:hover { background: #55ff55; color: black; border-color: #fff; }
+        input {
+            padding: 10px;
+            margin: 10px;
+            font-size: 16px;
+            width: 220px;
+            background: #222;
+            color: white;
+            border: 2px solid #555;
             text-align: center;
+            border-radius: 5px;
+        }
+        #gameContainer { display: none; flex-direction: column; align-items: center; }
+        #ui {
+            margin-bottom: 8px;
+            font-size: 14px;
+            text-align: center;
+            background: rgba(0,0,0,0.6);
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid #555;
         }
         canvas {
-            border: 4px solid #444;
-            background: #87CEEB;
-            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+            border: 4px solid #333;
+            background: #7ec0ee;
+            box-shadow: 0 0 25px rgba(0,0,0,0.9);
         }
     </style>
 </head>
 <body>
-    <div id="ui">
-        <h2>2D Minecraft Multiplayer</h2>
-        <span>이동: WASD / 방향키 | 블록 설치: 우클릭 | 블록 파괴: 좌클릭 | 블록 선택: 1~5번</span>
-    </div>
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
 
-    <script src="/socket.io/socket.io.js"></script>
+    <!-- 메뉴 화면 -->
+    <div id="menuScreen">
+        <h1>2D MINECRAFT</h1>
+        <button class="menu-btn" onclick="startSinglePlay()">싱글 플레이</button>
+        <div style="margin-top: 15px; border-top: 1px solid #444; padding-top: 15px; display: flex; flex-direction: column; align-items: center;">
+            <input type="text" id="serverIp" placeholder="서버 IP 입력 (예: localhost)">
+            <button class="menu-btn" onclick="startMultiPlay()">멀티플레이 참가</button>
+        </div>
+    </div>
+
+    <!-- 게임 플레이 화면 -->
+    <div id="gameContainer">
+        <div id="ui">
+            <span>이동: A/D 또는 방향키 | 점프: W/↑/Space | 파괴: 좌클릭 | 설치: 우클릭 | 블록선택: 1~5 (1:흙, 2:돌, 3:잔디, 4:나무, 5:나뭇잎)</span>
+        </div>
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+    </div>
+
+    <!-- Socket.io 클라이언트 라이브러리 (파이썬 Flask-SocketIO 연동) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
     <script>
-        const socket = io();
+        let socket;
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
@@ -45,16 +100,17 @@
         let players = {};
         let world = {};
         let myId = null;
+        let isGameStarted = false;
 
         const player = {
-            x: 100,
+            x: 0,
             y: 100,
             width: 24,
-            height: 28,
+            height: 30,
             vx: 0,
             vy: 0,
             speed: 4,
-            jumpPower: 10,
+            jumpPower: 9,
             selectedBlock: 1
         };
 
@@ -71,46 +127,73 @@
             keys[e.code] = false;
         });
 
-        // 블록 타입별 색상
         const blockColors = {
-            1: '#8B4513', // 흙 (Dirt)
-            2: '#787878', // 돌 (Stone)
-            3: '#228B22', // 잔디 (Grass)
-            4: '#A0522D', // 나무 (Wood)
-            5: '#FFD700'  // 황금 (Gold)
+            1: '#8B5A2B', // 흙
+            2: '#7F7F7F', // 돌
+            3: '#559933', // 잔디
+            4: '#654321', // 나무
+            5: '#2d7a2d'  // 나뭇잎
         };
 
-        socket.on('init', (data) => {
-            myId = data.id;
-            world = data.world;
-            players = data.players;
-            if (players[myId]) {
-                player.x = players[myId].x;
-                player.y = players[myId].y;
-            }
-        });
+        function startSinglePlay() {
+            // 싱글플레이도 로컬 서버(localhost:5000)와 통신하여 멀티와 동일하게 작동
+            initGame("http://localhost:5000");
+        }
 
-        socket.on('currentPlayers', (serverPlayers) => {
-            players = serverPlayers;
-        });
+        function startMultiPlay() {
+            let ip = document.getElementById('serverIp').value.trim();
+            if (!ip) ip = "localhost";
+            initGame(`http://${ip}:5000`);
+        }
 
-        socket.on('playerMoved', (pData) => {
-            if (players[pData.id]) {
-                players[pData.id].x = pData.x;
-                players[pData.id].y = pData.y;
-            }
-        });
+        function initGame(serverUrl) {
+            document.getElementById('menuScreen').style.display = 'none';
+            document.getElementById('gameContainer').style.display = 'flex';
 
-        socket.on('worldUpdate', (serverWorld) => {
-            world = serverWorld;
-        });
+            socket = io(serverUrl);
+            myId = 'player_' + Math.random().toString(36).substring(2, 7);
+
+            socket.on('connect', () => {
+                socket.emit('joinGame', { id: myId });
+            });
+
+            socket.on('init', (data) => {
+                world = data.world;
+                players = data.players;
+                if (players[myId]) {
+                    player.x = players[myId].x;
+                    player.y = players[myId].y;
+                }
+                isGameStarted = true;
+            });
+
+            socket.on('currentPlayers', (serverPlayers) => {
+                players = serverPlayers;
+            });
+
+            socket.on('playerMoved', (pData) => {
+                if (players[pData.id]) {
+                    players[pData.id].x = pData.x;
+                    players[pData.id].y = pData.y;
+                }
+            });
+
+            socket.on('worldUpdate', (serverWorld) => {
+                world = serverWorld;
+            });
+
+            loop();
+        }
+
+        function isSolid(wx, wy) {
+            return world[`${wx},${wy}`] !== undefined;
+        }
 
         canvas.addEventListener('mousedown', (e) => {
             const rect = canvas.getBoundingClientRect();
             const clickX = e.clientX - rect.left;
             const clickY = e.clientY - rect.top;
 
-            // 카메라 보정 계산 (플레이어 중심)
             const camX = player.x - canvas.width / 2;
             const camY = player.y - canvas.height / 2;
 
@@ -119,13 +202,11 @@
             const key = `${worldX},${worldY}`;
 
             if (e.button === 0) {
-                // 좌클릭: 블록 파괴
                 if (world[key]) {
                     delete world[key];
                     socket.emit('breakBlock', { x: worldX, y: worldY });
                 }
             } else if (e.button === 2) {
-                // 우클릭: 블록 설치
                 if (!world[key]) {
                     world[key] = player.selectedBlock;
                     socket.emit('placeBlock', { x: worldX, y: worldY, type: player.selectedBlock });
@@ -136,70 +217,88 @@
         canvas.addEventListener('contextmenu', e => e.preventDefault());
 
         function update() {
-            // 이동 로직
+            if (!isGameStarted) return;
+
             if (keys['KeyA'] || keys['ArrowLeft']) player.vx = -player.speed;
             else if (keys['KeyD'] || keys['ArrowRight']) player.vx = player.speed;
             else player.vx = 0;
 
-            // 간단한 중력 및 점프
-            player.vy += 0.5; // 중력
-            if ((keys['KeyW'] || keys['ArrowUp'] || keys['Space'])) {
-                // 바닥에 닿았을 때 점프 (간이 체크)
-                player.vy = -player.jumpPower;
+            player.vy += 0.45;
+            if (player.vy > 12) player.vy = 12;
+
+            if (keys['KeyW'] || keys['ArrowUp'] || keys['Space']) {
+                const feetY = Math.floor((player.y + player.height + 2) / TILE_SIZE);
+                const centerX = Math.floor((player.x + player.width / 2) / TILE_SIZE);
+                if (isSolid(centerX, feetY)) {
+                    player.vy = -player.jumpPower;
+                }
             }
 
             player.x += player.vx;
             player.y += player.vy;
 
-            // 바닥 제한
-            if (player.y > 1000) {
-                player.y = 100;
+            const feetY = Math.floor((player.y + player.height) / TILE_SIZE);
+            const headY = Math.floor(player.y / TILE_SIZE);
+            const leftX = Math.floor(player.x / TILE_SIZE);
+            const rightX = Math.floor((player.x + player.width) / TILE_SIZE);
+
+            if (player.vy > 0) {
+                if (isSolid(leftX, feetY) || isSolid(rightX, feetY)) {
+                    player.y = feetY * TILE_SIZE - player.height;
+                    player.vy = 0;
+                }
+            } else if (player.vy < 0) {
+                if (isSolid(leftX, headY) || isSolid(rightX, headY)) {
+                    player.y = (headY + 1) * TILE_SIZE;
+                    player.vy = 0;
+                }
+            }
+
+            if (player.y > 800) {
+                player.y = 50;
+                player.x = 0;
                 player.vy = 0;
             }
 
             if (myId && players[myId]) {
-                socket.emit('playerMovement', { x: player.x, y: player.y });
+                socket.emit('playerMovement', { id: myId, x: player.x, y: player.y });
             }
         }
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            const camX = player.x - canvas.width / 2;
-            const camY = player.y - canvas.height / 2;
+            // 카메라가 플레이어를 부드럽고 안정적으로 추적하도록 보정 (떨림 방지)
+            const camX = Math.floor(player.x - canvas.width / 2);
+            const camY = Math.floor(player.y - canvas.height / 2);
 
             ctx.save();
             ctx.translate(-camX, -camY);
 
-            // 월드 렌더링
             for (let key in world) {
                 let [wx, wy] = key.split(',').map(Number);
-                ctx.fillStyle = blockColors[world[key]] || '#fff';
+                let blockType = world[key];
+                
+                ctx.fillStyle = blockColors[blockType] || '#fff';
                 ctx.fillRect(wx * TILE_SIZE, wy * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+                
+                ctx.strokeStyle = 'rgba(0,0,0,0.15)';
                 ctx.strokeRect(wx * TILE_SIZE, wy * TILE_SIZE, TILE_SIZE, TILE_SIZE);
             }
 
-            // 플레이어들 렌더링
             for (let id in players) {
                 let p = players[id];
-                ctx.fillStyle = (id === myId) ? '#ff5555' : '#5555ff';
-                ctx.fillRect(p.x, p.y, player.width, player.height);
-                
-                // 닉네임 표시
+                ctx.fillStyle = (id === myId) ? '#cc3333' : '#3333cc';
+                ctx.fillRect(p.x, p.y + 8, p.width, p.height - 8);
+                ctx.fillStyle = '#ffcc99';
+                ctx.fillRect(p.x + 2, p.y, p.width - 4, 10);
+
                 ctx.fillStyle = '#ffffff';
-                ctx.font = '12px Courier New';
-                ctx.fillText(id.substring(0, 5), p.x, p.y - 6);
+                ctx.font = '11px Courier New';
+                ctx.fillText(id.substring(0, 6), p.x - 4, p.y - 6);
             }
 
             ctx.restore();
-
-            // 인벤토리 UI 표시
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-            ctx.fillRect(10, 10, 200, 40);
-            ctx.fillStyle = '#fff';
-            ctx.font = '14px Courier New';
-            ctx.fillText(`선택 블록: [${player.selectedBlock}] (1~5변경)`, 20, 35);
         }
 
         function loop() {
@@ -207,8 +306,6 @@
             draw();
             requestAnimationFrame(loop);
         }
-
-        loop();
     </script>
 </body>
 </html>
